@@ -117,6 +117,7 @@ public class NavigationFactory : NSObject, FlutterStreamHandler
         }
     }
 
+    //HERE
     func startNavigationWithWayPoints(wayPoints: [Waypoint], flutterResult: @escaping FlutterResult, isUpdatingWaypoints: Bool)
     {
         let simulationMode: SimulationMode = _simulateRoute ? .always : .never
@@ -176,7 +177,9 @@ public class NavigationFactory : NSObject, FlutterStreamHandler
                     if(strongSelf._mapStyleUrlNight != nil){
                         nightStyle.mapStyleURL = URL(string: strongSelf._mapStyleUrlNight!)!
                     }
+                    
                     let navigationOptions = NavigationOptions(styles: [dayStyle, nightStyle], navigationService: navigationService)
+                    
                     if (isUpdatingWaypoints) {
                         strongSelf._navigationViewController?.navigationService.router.updateRoute(with: IndexedRouteResponse(routeResponse: response, routeIndex: 0), routeOptions: strongSelf._options) { success in
                             if (success) {
@@ -197,10 +200,32 @@ public class NavigationFactory : NSObject, FlutterStreamHandler
 
     func startNavigation(routeResponse: RouteResponse, options: NavigationRouteOptions, navOptions: NavigationOptions)
     {
+        let _bottomBanner = CustomBottomBarViewController()
+        
         isEmbeddedNavigation = false
         if(self._navigationViewController == nil)
         {
-            self._navigationViewController = NavigationViewController(for: routeResponse, routeIndex: 0, routeOptions: options, navigationOptions: navOptions)
+            //HERE: Injecting a custom bottom bar
+            navOptions.bottomBanner = _bottomBanner
+            
+            let navigationViewController = NavigationViewController(for: routeResponse, routeIndex: 0, routeOptions: options, navigationOptions: navOptions)
+            //this was original
+            //self._navigationViewController = NavigationViewController(for: routeResponse, routeIndex: 0, routeOptions: options, navigationOptions: navOptions)
+            self._navigationViewController = navigationViewController
+            
+            _bottomBanner.navigationViewController = navigationViewController
+            
+            // To change top and bottom banner size and position change layout constraints directly.
+            let parentSafeArea = self._navigationViewController!.view.safeAreaLayoutGuide
+            let bannerHeight: CGFloat = 80.0
+            let verticalOffset: CGFloat = 20.0
+            let horizontalOffset: CGFloat = 10.0
+                            
+            _bottomBanner.view.heightAnchor.constraint(equalToConstant: bannerHeight).isActive = true
+            _bottomBanner.view.bottomAnchor.constraint(equalTo: parentSafeArea.bottomAnchor, constant: -verticalOffset).isActive = true
+            _bottomBanner.view.leadingAnchor.constraint(equalTo: parentSafeArea.leadingAnchor, constant: horizontalOffset).isActive = true
+            _bottomBanner.view.trailingAnchor.constraint(equalTo: parentSafeArea.trailingAnchor, constant: -horizontalOffset).isActive = true
+
             self._navigationViewController!.modalPresentationStyle = .fullScreen
             self._navigationViewController!.delegate = self
             self._navigationViewController!.navigationMapView!.localizeLabels()
