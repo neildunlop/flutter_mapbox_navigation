@@ -10,16 +10,32 @@ import com.mapbox.geojson.Point
  */
 class WaypointSet {
 
-    private val waypoints = mutableListOf<Waypoint>()
+    private val _waypoints = mutableListOf<Waypoint>()
 
-    val isEmpty get() = waypoints.isEmpty()
+    val isEmpty get() = _waypoints.isEmpty()
 
     fun add(waypoint: Waypoint) {
-        waypoints.add(waypoint)
+        _waypoints.add(waypoint)
+    }
+
+    fun add(waypoints: List<Waypoint>) {
+        for (waypoint in waypoints) {
+            _waypoints.add(waypoint)
+        }
     }
 
     fun clear() {
-        waypoints.clear()
+        _waypoints.clear()
+    }
+
+    fun asList(): List<Waypoint> {
+        return _waypoints
+    }
+
+    fun activeWaypointSet(): WaypointSet {
+        val activeWaypointSet = WaypointSet()
+        activeWaypointSet.add(_waypoints.filter { it -> it.isActive })
+        return activeWaypointSet
     }
 
     /***
@@ -28,8 +44,8 @@ class WaypointSet {
      * That's why to make a waypoint silent we exclude its index from the waypointsIndices.
      */
     fun waypointsIndices(): List<Int> {
-        return waypoints.mapIndexedNotNull { index, _ ->
-            if (waypoints.isSilentWaypoint(index)) {
+        return _waypoints.mapIndexedNotNull { index, _ ->
+            if (_waypoints.isSilentWaypoint(index)) {
                 null
             } else index
         }
@@ -40,17 +56,17 @@ class WaypointSet {
      * Silent waypoint can't have a name unless they're converted to regular because of position.
      * First and last waypoint can't be silent.
      */
-    fun waypointsNames(): List<String> = waypoints
+    fun waypointsNames(): List<String> = _waypoints
         // silent waypoints can't have a name
         .filterIndexed { index, _ ->
-            !waypoints.isSilentWaypoint(index)
+            !_waypoints.isSilentWaypoint(index)
         }
         .map {
             it.name
         }
 
     fun coordinatesList(): List<Point> {
-        return waypoints.map { it.point }
+        return _waypoints.map { it.point }
     }
 
     private fun List<Waypoint>.isSilentWaypoint(index: Int) =

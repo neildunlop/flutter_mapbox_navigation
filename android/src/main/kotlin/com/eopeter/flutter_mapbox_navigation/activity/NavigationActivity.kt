@@ -33,6 +33,7 @@ import com.mapbox.navigation.dropin.map.MapViewObserver
 import com.mapbox.navigation.utils.internal.ifNonNull
 import eopeter.flutter_mapbox_navigation.R
 import eopeter.flutter_mapbox_navigation.databinding.NavigationActivityBinding
+import timber.log.Timber
 
 class NavigationActivity : AppCompatActivity() {
 
@@ -112,6 +113,11 @@ class NavigationActivity : AppCompatActivity() {
         binding.navigationView.customizeViewStyles {}
         points.map { waypointSet.add(it) }
         requestRoutes(waypointSet)
+
+        //HERE: Injecting Info Panel
+        binding.navigationView.customizeViewBinders {
+            infoPanelContentBinder = MyInfoPanelContentBinder(waypointSet, waypointStatusChanged)
+        }
     }
 
     override fun onDestroy() {
@@ -128,20 +134,22 @@ class NavigationActivity : AppCompatActivity() {
         super.onStart()
     }
 
+
     override fun onStop() {
         super.onStop()
     }
 
     private fun requestRoutes(waypointSet: WaypointSet) {
+
         sendEvent(MapBoxEvents.ROUTE_BUILDING)
         MapboxNavigationApp.current()!!.requestRoutes(
             routeOptions = RouteOptions
                 .builder()
                 .applyDefaultNavigationOptions()
                 .applyLanguageAndVoiceUnitOptions(this)
-                .coordinatesList(waypointSet.coordinatesList())
-                .waypointIndicesList(waypointSet.waypointsIndices())
-                .waypointNamesList(waypointSet.waypointsNames())
+                .coordinatesList(waypointSet.activeWaypointSet().coordinatesList())
+                .waypointIndicesList(waypointSet.activeWaypointSet().waypointsIndices())
+                .waypointNamesList(waypointSet.activeWaypointSet().waypointsNames())
                 .language(FlutterMapboxNavigationPlugin.navigationLanguage)
                 .alternatives(FlutterMapboxNavigationPlugin.showAlternateRoutes)
                 .build(),
@@ -164,7 +172,8 @@ class NavigationActivity : AppCompatActivity() {
                         return
                     }
                     binding.navigationView.api.routeReplayEnabled(FlutterMapboxNavigationPlugin.simulateRoute)
-                    binding.navigationView.api.startActiveGuidance(routes)
+                    binding.navigationView.api.startRoutePreview(routes)
+                    //binding.navigationView.api.startActiveGuidance(routes)
                 }
             }
         )
@@ -214,7 +223,9 @@ class NavigationActivity : AppCompatActivity() {
                 ) {
                     sendEvent(MapBoxEvents.ROUTE_BUILT)
                     binding.navigationView.api.routeReplayEnabled(true)
-                    binding.navigationView.api.startActiveGuidance(routes)
+                    binding.navigationView.api.startRoutePreview(routes)
+                    //binding.navigationView.api.startActiveGuidance(routes)
+
                 }
 
                 override fun onFailure(
@@ -246,8 +257,9 @@ class NavigationActivity : AppCompatActivity() {
     }
 
     private fun clearRouteAndStopNavigation() {
-        // clear
-        //mapboxNavigation.setRoutes(listOf())
+
+        finish()
+        waypointSet.clear()
     }
 
 
@@ -327,4 +339,16 @@ class NavigationActivity : AppCompatActivity() {
             return false
         }
     }
+
+
+    /**
+     * Fired when a waypoint active status changes. This allows users to use child controls like the
+     * InfoPanel to toggle waypoints into and out of the route. Used in situations where a user
+     * wants to skip a waypoint but not change the rest of the route.
+     */
+    private val waypointStatusChanged =
+        WaypointAdapter.OnWaypointStatusChangedListener { position: Int, isChecked: Boolean ->
+            waypointSet.asList()[position].isActive = isChecked
+            requestRoutes(waypointSet)
+        }
 }

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="horizontal"
+    android:layout_width="match_parent"
+    android:layout_height="50dp">
+
+    <CheckBox
+        android:id="@+id/waypointChip"
+        android:layout_width="150dp"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="6dp"
+        android:checked="true"
+        android:text="Test"
+        android:textColor="#000000"/>
+
+<!--    <com.google.android.material.chip.Chip-->
+<!--        android:id="@+id/waypointChipX"-->
+<!--        android:layout_width="150dp"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        android:layout_marginEnd="6dp"-->
+<!--        android:checked="true"-->
+<!--        android:text="Test"/>-->
+
+    <CheckBox
+        android:id="@+id/waypointDestinationChip"
+        android:layout_width="150dp"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="6dp"
+        android:checked="true"
+        android:text="Test"
+        android:checkable="false"
+        android:clickable="false"
+        android:visibility="gone"
+        android:textColor="#000000"/>
+
+<!--    <com.google.android.material.chip.Chip-->
+<!--        android:id="@+id/waypointDestinationChip"-->
+<!--        android:layout_width="150dp"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        android:layout_marginEnd="6dp"-->
+<!--        app:closeIconEnabled="false"-->
+<!--        android:text="Test"-->
+<!--        android:checkable="false"-->
+<!--        android:clickable="false"-->
+<!--        android:visibility="gone"/>-->
+
+
+<!--    <ImageView-->
+<!--        android:id="@+id/waypointChipArrow"-->
+<!--        android:layout_width="wrap_content"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        android:layout_gravity="center"/>-->
+
+</LinearLayout>

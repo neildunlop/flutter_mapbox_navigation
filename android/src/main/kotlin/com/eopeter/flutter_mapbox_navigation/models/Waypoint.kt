@@ -14,17 +14,24 @@ data class Waypoint(
     val point: Point,
     @SerializedName("isSilent")
     val isSilent: Boolean,
+    @SerializedName("isActive")
+    var isActive: Boolean,
 ) : Serializable {
 
+    constructor(name: String, longitude: Double, latitude: Double, isSilent: Boolean, isActive: Boolean) : this(
+        name,
+        Point.fromLngLat(longitude, latitude),
+        isSilent,
+        isActive
+    )
     constructor(name: String, longitude: Double, latitude: Double, isSilent: Boolean) : this(
         name,
         Point.fromLngLat(longitude, latitude),
-        isSilent
+        isSilent,
+        true
     )
-    constructor(name: String, point: Point) : this(name, point, false)
-    constructor(longitude: Double, latitude: Double) : this("", Point.fromLngLat(longitude, latitude), false)
-    constructor(point: Point, isSilent: Boolean) : this("", point, isSilent)
-    constructor(point: Point) : this("", point, true)
-
-
+    constructor(name: String, point: Point) : this(name, point, false, true)
+    constructor(longitude: Double, latitude: Double) : this("", Point.fromLngLat(longitude, latitude), false, true)
+    constructor(point: Point, isSilent: Boolean) : this("", point, isSilent, true)
+    constructor(point: Point) : this("", point, true, true)
 }

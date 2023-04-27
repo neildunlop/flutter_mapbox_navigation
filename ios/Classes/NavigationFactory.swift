@@ -71,8 +71,10 @@ public class NavigationFactory : NSObject, FlutterStreamHandler
         _wayPointOrder.removeAll()
 
         guard let oWayPoints = arguments?["wayPoints"] as? NSDictionary else {return}
+        print ("DEBUG " + oWayPoints.description)
 
         guard var locations = getLocationsFromWayPointDictionary(waypoints: oWayPoints) else { return }
+        print ("DEBUG " + locations.description)
 
         if(!_isOptimized)
         {
