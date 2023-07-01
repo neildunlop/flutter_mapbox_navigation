@@ -45,6 +45,7 @@ class EmbeddedNavigationMapView(
     }
 
     override fun dispose() {
+        unregisterMapObservers()
         unregisterObservers();
     }
 }

@@ -31,3 +31,5 @@ build/
 
 /example/android/app/src/main/res/values/mapbox_access_token.xml
 example/android/app/src/main/res/values/strings.xml
+
+android/src/main/res/values/mapbox_access_token.xml

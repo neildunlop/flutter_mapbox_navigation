@@ -4,8 +4,15 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.location.Location
 import android.os.Bundle
+import android.util.Log
+import androidx.annotation.DrawableRes
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.lifecycle.LifecycleOwner
 import com.eopeter.flutter_mapbox_navigation.models.MapBoxEvents
 import com.eopeter.flutter_mapbox_navigation.models.MapBoxRouteProgressEvent
@@ -15,8 +22,17 @@ import com.eopeter.flutter_mapbox_navigation.utilities.PluginUtilities
 import com.google.gson.Gson
 import com.mapbox.api.directions.v5.DirectionsCriteria
 import com.mapbox.api.directions.v5.models.RouteOptions
+import com.mapbox.geojson.Feature
+import com.mapbox.geojson.FeatureCollection
 import com.mapbox.geojson.Point
 import com.mapbox.maps.*
+import com.mapbox.maps.extension.style.layers.generated.SymbolLayer
+import com.mapbox.maps.extension.style.sources.addSource
+import com.mapbox.maps.extension.style.sources.generated.GeoJsonSource
+import com.mapbox.maps.extension.style.sources.getSource
+import com.mapbox.maps.plugin.annotation.annotations
+import com.mapbox.maps.plugin.annotation.generated.PointAnnotationOptions
+import com.mapbox.maps.plugin.annotation.generated.createPointAnnotationManager
 import com.mapbox.navigation.base.extensions.applyDefaultNavigationOptions
 import com.mapbox.navigation.base.extensions.applyLanguageAndVoiceUnitOptions
 import com.mapbox.navigation.base.options.NavigationOptions
@@ -28,12 +44,16 @@ import com.mapbox.navigation.core.lifecycle.MapboxNavigationApp
 import com.mapbox.navigation.core.trip.session.LocationMatcherResult
 import com.mapbox.navigation.core.trip.session.LocationObserver
 import com.mapbox.navigation.core.trip.session.RouteProgressObserver
+import com.mapbox.navigation.dropin.map.MapViewObserver
+import eopeter.flutter_mapbox_navigation.R
 import eopeter.flutter_mapbox_navigation.databinding.NavigationActivityBinding
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import timber.log.Timber
 import java.util.*
-import android.util.Log
+//import com.mapbox.mapboxsdk.style.sources.GeoJsonSource;
+
 
 open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBinding, accessToken: String):  MethodChannel.MethodCallHandler, EventChannel.StreamHandler,
         Application.ActivityLifecycleCallbacks {
@@ -54,6 +74,8 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
 
         // initialize navigation trip observers
         registerObservers()
+
+        registerMapObservers()
     }
 
     override fun onMethodCall(methodCall: MethodCall, result: MethodChannel.Result) {
@@ -272,6 +294,16 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
         MapboxNavigationApp.current()?.unregisterArrivalObserver(arrivalObserver)
     }
 
+    open fun registerMapObservers() {
+        binding.navigationView.registerMapObserver(poiDecorator)
+        binding.navigationView.registerMapObserver(otherCarDecorator)
+    }
+
+    open fun unregisterMapObservers() {
+        binding.navigationView.unregisterMapObserver(poiDecorator)
+        binding.navigationView.unregisterMapObserver(otherCarDecorator)
+    }
+
     //Flutter stream listener delegate methods
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
         FlutterMapboxNavigationPlugin.eventSink = events
@@ -377,6 +409,198 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
 
         }
     }
+
+    /**
+     * Notifies with attach and detach events on [MapView]
+     */
+    private val poiDecorator = object : MapViewObserver() {
+
+        override fun onAttached(mapView: MapView) {
+            addAnnotationToMap(mapView);
+        }
+
+        private fun addAnnotationToMap(mapView: MapView) {
+            Timber.tag("Neil!").e("Adding annotations")
+            // Create an instance of the Annotation API and get the PointAnnotationManager.
+            bitmapFromDrawableRes(
+                context,
+                R.drawable.red_marker
+            )?.let {
+                val annotationApi = mapView?.annotations
+                //val pointAnnotationManager = annotationApi?.createPointAnnotationManager(mapView!!)
+                val pointAnnotationManager = annotationApi?.createPointAnnotationManager()
+                // Set options for the resulting symbol layer.
+                val pointAnnotationOptions1: PointAnnotationOptions = PointAnnotationOptions()
+                    // Define a geographic coordinate.
+                    .withPoint(Point.fromLngLat(-1.470070, 54.016173))
+                    // Specify the bitmap you assigned to the point annotation
+                    // The bitmap will be added to map style automatically.
+                    .withIconImage(it)
+
+                val pointAnnotationOptions2: PointAnnotationOptions = PointAnnotationOptions()
+                    // Define a geographic coordinate.
+                    .withPoint(Point.fromLngLat(-1.470826, 54.015643))
+                    // Specify the bitmap you assigned to the point annotation
+                    // The bitmap will be added to map style automatically.
+                    .withIconImage(it)
+                // Add the resulting pointAnnotation to the map.
+                pointAnnotationManager?.create(pointAnnotationOptions1)
+                pointAnnotationManager?.create(pointAnnotationOptions2)
+            }
+        }
+
+        private fun bitmapFromDrawableRes(context: Context, @DrawableRes resourceId: Int) =
+            convertDrawableToBitmap(AppCompatResources.getDrawable(context, resourceId))
+
+        private fun convertDrawableToBitmap(sourceDrawable: Drawable?): Bitmap? {
+            if (sourceDrawable == null) {
+                return null
+            }
+            return if (sourceDrawable is BitmapDrawable) {
+                sourceDrawable.bitmap
+            } else {
+// copying drawable object to not manipulate on the same reference
+                val constantState = sourceDrawable.constantState ?: return null
+                val drawable = constantState.newDrawable().mutate()
+                val bitmap: Bitmap = Bitmap.createBitmap(
+                    drawable.intrinsicWidth, drawable.intrinsicHeight,
+                    Bitmap.Config.ARGB_8888
+                )
+                val canvas = Canvas(bitmap)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                bitmap
+            }
+        }
+    }
+
+    private val otherCarDecorator = object : MapViewObserver() {
+
+        override fun onAttached(mapView: MapView) {
+            addCarsToMap(mapView)
+            updateCarPositions(mapView)
+        }
+
+        //TODO: Probably pass a collection of position updates in here - each identified by the car number
+        private fun updateCarPositions(mapView: MapView) {
+            // This method is where we update the marker position once we have new coordinates. First we
+            // check if this is the first time we are executing this handler, the best way to do this is
+            // check if marker is null;
+            // This method is where we update the marker position once we have new coordinates. First we
+            // check if this is the first time we are executing this handler, the best way to do this is
+            // check if marker is null;
+
+            val mapboxMap = mapView.getMapboxMap()
+            val style = mapboxMap.getStyle()
+
+            if (mapboxMap.getStyle() != null) {
+                val carMarkerSource: GeoJsonSource = mapboxMap.getStyle()!!.getSource("car-marker-source-id") as GeoJsonSource
+                if (carMarkerSource != null) {
+                    carMarkerSource.setGeoJson(
+                        FeatureCollection.fromFeature(
+                            Feature.fromGeometry(
+                                Point.fromLngLat(
+                                    position.getLongitude(),
+                                    position.getLatitude()
+                                )
+                            )
+                        )
+                    )
+                }
+            }
+
+            // Lastly, animate the camera to the new position so the user
+            // wont have to search for the marker and then return.
+
+            // Lastly, animate the camera to the new position so the user
+            // wont have to search for the marker and then return.
+            //map.animateCamera(CameraUpdateFactory.newLatLng(position))
+        }
+
+        private fun addCarsToMap(mapView: MapView) {
+            Timber.tag("Neil!").e("Adding cars")
+
+            val mapboxMap = mapView.getMapboxMap()
+            val style = mapboxMap.getStyle()
+
+            if (style != null) {
+                bitmapFromDrawableRes(
+                    context,
+                    R.drawable.car_marker)?.let {
+                    style.addImage("car-marker-id",
+                        it
+                    )
+                }
+
+                //create the GeoJsonData Source
+                val geoJsonSource = GeoJsonSource.Builder("car-marker-source-id").build()
+                style.addSource(geoJsonSource)
+
+                //add the GeoJsonData Source to the layer
+                val symbolLayer = SymbolLayer("layer-id", "source-id")
+                symbolLayer.iconImage("space-station-icon-id")
+                symbolLayer.iconIgnorePlacement(true)
+                symbolLayer.iconAllowOverlap(true)
+                symbolLayer.iconSize(.7)
+            }
+
+
+            // Create an instance of the Annotation API and get the PointAnnotationManager.
+            bitmapFromDrawableRes(
+                context,
+                R.drawable.car_marker
+            )?.let {
+                val annotationApi = mapView?.annotations
+                //val pointAnnotationManager = annotationApi?.createPointAnnotationManager(mapView!!)
+                val pointAnnotationManager = annotationApi?.createPointAnnotationManager()
+                // Set options for the resulting symbol layer.
+                val pointAnnotationOptions1: PointAnnotationOptions = PointAnnotationOptions()
+                    // Define a geographic coordinate.
+                    .withPoint(Point.fromLngLat(-1.470070, 54.016173))
+                    // Specify the bitmap you assigned to the point annotation
+                    // The bitmap will be added to map style automatically.
+                    .withIconImage(it)
+
+                val pointAnnotationOptions2: PointAnnotationOptions = PointAnnotationOptions()
+                    // Define a geographic coordinate.
+                    .withPoint(Point.fromLngLat(-1.470826, 54.015643))
+                    // Specify the bitmap you assigned to the point annotation
+                    // The bitmap will be added to map style automatically.
+                    .withIconImage(it)
+                // Add the resulting pointAnnotation to the map.
+                pointAnnotationManager?.create(pointAnnotationOptions1)
+                pointAnnotationManager?.create(pointAnnotationOptions2)
+            }
+        }
+
+        private fun bitmapFromDrawableRes(context: Context, @DrawableRes resourceId: Int) =
+            convertDrawableToBitmap(AppCompatResources.getDrawable(context, resourceId))
+
+        private fun convertDrawableToBitmap(sourceDrawable: Drawable?): Bitmap? {
+            if (sourceDrawable == null) {
+                return null
+            }
+            return if (sourceDrawable is BitmapDrawable) {
+                sourceDrawable.bitmap
+            } else {
+// copying drawable object to not manipulate on the same reference
+                val constantState = sourceDrawable.constantState ?: return null
+                val drawable = constantState.newDrawable().mutate()
+                val bitmap: Bitmap = Bitmap.createBitmap(
+                    drawable.intrinsicWidth, drawable.intrinsicHeight,
+                    Bitmap.Config.ARGB_8888
+                )
+                val canvas = Canvas(bitmap)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                bitmap
+            }
+        }
+    }
+
+
+
+
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
         Log.d("Embedded", "onActivityCreated not implemented")

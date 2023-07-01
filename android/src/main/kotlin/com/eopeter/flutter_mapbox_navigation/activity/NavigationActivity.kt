@@ -1,9 +1,15 @@
 package com.eopeter.flutter_mapbox_navigation.activity
 
 import android.content.*
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.location.Location
 import android.os.Bundle
+import androidx.annotation.DrawableRes
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.content.res.AppCompatResources
 import com.eopeter.flutter_mapbox_navigation.FlutterMapboxNavigationPlugin
 import com.eopeter.flutter_mapbox_navigation.models.MapBoxEvents
 import com.eopeter.flutter_mapbox_navigation.models.MapBoxRouteProgressEvent
@@ -34,6 +40,10 @@ import com.mapbox.navigation.utils.internal.ifNonNull
 import eopeter.flutter_mapbox_navigation.R
 import eopeter.flutter_mapbox_navigation.databinding.NavigationActivityBinding
 import com.google.gson.Gson
+import com.mapbox.maps.plugin.annotation.annotations
+import com.mapbox.maps.plugin.annotation.generated.PointAnnotationOptions
+import com.mapbox.maps.plugin.annotation.generated.createPointAnnotationManager
+import timber.log.Timber
 
 class NavigationActivity : AppCompatActivity() {
 
@@ -46,28 +56,33 @@ class NavigationActivity : AppCompatActivity() {
     private var lastLocation: Location? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        Timber.tag("Neil!").e("Creating")
         super.onCreate(savedInstanceState)
         setTheme(R.style.Theme_AppCompat_NoActionBar)
         binding = NavigationActivityBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         accessToken =
-                PluginUtilities.getResourceFromContext(this.applicationContext, "mapbox_access_token")
+            PluginUtilities.getResourceFromContext(this.applicationContext, "mapbox_access_token")
 
         val navigationOptions = NavigationOptions.Builder(this.applicationContext)
-                .accessToken(accessToken)
-                .build()
+            .accessToken(accessToken)
+            .build()
 
         MapboxNavigationApp
-                .setup(navigationOptions)
-                .attach(this)
+            .setup(navigationOptions)
+            .attach(this)
 
         if (FlutterMapboxNavigationPlugin.allowsClickToSetDestination) {
             binding.navigationView.registerMapObserver(onMapLongClick)
             binding.navigationView.customizeViewOptions {
                 enableMapLongClickIntercept = false
             }
+            //New
+            binding.navigationView.registerMapObserver(pointMarkerAdder)
+
         }
+
 
         MapboxNavigationApp.current()?.registerLocationObserver(locationObserver)
         MapboxNavigationApp.current()?.registerRouteProgressObserver(routeProgressObserver)
@@ -94,13 +109,13 @@ class NavigationActivity : AppCompatActivity() {
         }
 
         registerReceiver(
-                finishBroadcastReceiver,
-                IntentFilter(NavigationLauncher.KEY_STOP_NAVIGATION)
+            finishBroadcastReceiver,
+            IntentFilter(NavigationLauncher.KEY_STOP_NAVIGATION)
         )
 
         registerReceiver(
-                addWayPointsBroadcastReceiver,
-                IntentFilter(NavigationLauncher.KEY_ADD_WAYPOINTS)
+            addWayPointsBroadcastReceiver,
+            IntentFilter(com.eopeter.flutter_mapbox_navigation.activity.NavigationLauncher.KEY_ADD_WAYPOINTS)
         )
 
         val p = intent.getSerializableExtra("waypoints") as? MutableList<Waypoint>
@@ -110,16 +125,24 @@ class NavigationActivity : AppCompatActivity() {
         var styleUrl = FlutterMapboxNavigationPlugin.mapStyleUrlDay
         if (styleUrl == null) styleUrl = Style.MAPBOX_STREETS
         // set map style
-        binding.navigationView.customizeViewStyles {}
+        binding.navigationView.customizeViewStyles {
+            //TODO: Think we add markers here
+
+        }
         points.map { waypointSet.add(it) }
         requestRoutes(waypointSet)
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        binding.navigationView.unregisterMapObserver(pointMarkerAdder)
         if (FlutterMapboxNavigationPlugin.allowsClickToSetDestination) {
             binding.navigationView.unregisterMapObserver(onMapLongClick)
         }
+
+        //New
+        binding.navigationView.unregisterMapObserver(pointMarkerAdder)
+
         MapboxNavigationApp.current()?.unregisterLocationObserver(locationObserver)
         MapboxNavigationApp.current()?.unregisterRouteProgressObserver(routeProgressObserver)
         MapboxNavigationApp.current()?.unregisterArrivalObserver(arrivalObserver)
@@ -136,38 +159,41 @@ class NavigationActivity : AppCompatActivity() {
     private fun requestRoutes(waypointSet: WaypointSet) {
         sendEvent(MapBoxEvents.ROUTE_BUILDING)
         MapboxNavigationApp.current()!!.requestRoutes(
-                routeOptions = RouteOptions
-                        .builder()
-                        .applyDefaultNavigationOptions()
-                        .applyLanguageAndVoiceUnitOptions(this)
-                        .coordinatesList(waypointSet.coordinatesList())
-                        .waypointIndicesList(waypointSet.waypointsIndices())
-                        .waypointNamesList(waypointSet.waypointsNames())
-                        .language(FlutterMapboxNavigationPlugin.navigationLanguage)
-                        .alternatives(FlutterMapboxNavigationPlugin.showAlternateRoutes)
-                        .build(),
-                callback = object : NavigationRouterCallback {
-                    override fun onCanceled(routeOptions: RouteOptions, routerOrigin: RouterOrigin) {
-                        sendEvent(MapBoxEvents.ROUTE_BUILD_CANCELLED)
-                    }
-
-                    override fun onFailure(reasons: List<RouterFailure>, routeOptions: RouteOptions) {
-                        sendEvent(MapBoxEvents.ROUTE_BUILD_FAILED)
-                    }
-
-                    override fun onRoutesReady(
-                            routes: List<NavigationRoute>,
-                            routerOrigin: RouterOrigin
-                    ) {
-                        sendEvent(MapBoxEvents.ROUTE_BUILT, Gson().toJson(routes.map { it.directionsRoute }))
-                        if (routes.isEmpty()) {
-                            sendEvent(MapBoxEvents.ROUTE_BUILD_NO_ROUTES_FOUND)
-                            return
-                        }
-                        binding.navigationView.api.routeReplayEnabled(FlutterMapboxNavigationPlugin.simulateRoute)
-                        binding.navigationView.api.startActiveGuidance(routes)
-                    }
+            routeOptions = RouteOptions
+                .builder()
+                .applyDefaultNavigationOptions()
+                .applyLanguageAndVoiceUnitOptions(this)
+                .coordinatesList(waypointSet.coordinatesList())
+                .waypointIndicesList(waypointSet.waypointsIndices())
+                .waypointNamesList(waypointSet.waypointsNames())
+                .language(FlutterMapboxNavigationPlugin.navigationLanguage)
+                .alternatives(FlutterMapboxNavigationPlugin.showAlternateRoutes)
+                .build(),
+            callback = object : NavigationRouterCallback {
+                override fun onCanceled(routeOptions: RouteOptions, routerOrigin: RouterOrigin) {
+                    sendEvent(MapBoxEvents.ROUTE_BUILD_CANCELLED)
                 }
+
+                override fun onFailure(reasons: List<RouterFailure>, routeOptions: RouteOptions) {
+                    sendEvent(MapBoxEvents.ROUTE_BUILD_FAILED)
+                }
+
+                override fun onRoutesReady(
+                    routes: List<NavigationRoute>,
+                    routerOrigin: RouterOrigin
+                ) {
+                    sendEvent(
+                        MapBoxEvents.ROUTE_BUILT,
+                        Gson().toJson(routes.map { it.directionsRoute })
+                    )
+                    if (routes.isEmpty()) {
+                        sendEvent(MapBoxEvents.ROUTE_BUILD_NO_ROUTES_FOUND)
+                        return
+                    }
+                    binding.navigationView.api.routeReplayEnabled(FlutterMapboxNavigationPlugin.simulateRoute)
+                    binding.navigationView.api.startActiveGuidance(routes)
+                }
+            }
         )
     }
 
@@ -199,36 +225,36 @@ class NavigationActivity : AppCompatActivity() {
         // that make sure the route request is optimized
         // to allow for support of all of the Navigation SDK features
         MapboxNavigationApp.current()!!.requestRoutes(
-                routeOptions = RouteOptions
-                        .builder()
-                        .applyDefaultNavigationOptions()
-                        .applyLanguageAndVoiceUnitOptions(this)
-                        .coordinatesList(addedWaypoints.coordinatesList())
-                        .waypointIndicesList(addedWaypoints.waypointsIndices())
-                        .waypointNamesList(addedWaypoints.waypointsNames())
-                        .alternatives(true)
-                        .build(),
-                callback = object : NavigationRouterCallback {
-                    override fun onRoutesReady(
-                            routes: List<NavigationRoute>,
-                            routerOrigin: RouterOrigin
-                    ) {
-                        sendEvent(MapBoxEvents.ROUTE_BUILT, Gson().toJson(routes))
-                        binding.navigationView.api.routeReplayEnabled(true)
-                        binding.navigationView.api.startActiveGuidance(routes)
-                    }
-
-                    override fun onFailure(
-                            reasons: List<RouterFailure>,
-                            routeOptions: RouteOptions
-                    ) {
-                        sendEvent(MapBoxEvents.ROUTE_BUILD_FAILED)
-                    }
-
-                    override fun onCanceled(routeOptions: RouteOptions, routerOrigin: RouterOrigin) {
-                        sendEvent(MapBoxEvents.ROUTE_BUILD_CANCELLED)
-                    }
+            routeOptions = RouteOptions
+                .builder()
+                .applyDefaultNavigationOptions()
+                .applyLanguageAndVoiceUnitOptions(this)
+                .coordinatesList(addedWaypoints.coordinatesList())
+                .waypointIndicesList(addedWaypoints.waypointsIndices())
+                .waypointNamesList(addedWaypoints.waypointsNames())
+                .alternatives(true)
+                .build(),
+            callback = object : NavigationRouterCallback {
+                override fun onRoutesReady(
+                    routes: List<NavigationRoute>,
+                    routerOrigin: RouterOrigin
+                ) {
+                    sendEvent(MapBoxEvents.ROUTE_BUILT, Gson().toJson(routes))
+                    binding.navigationView.api.routeReplayEnabled(true)
+                    binding.navigationView.api.startActiveGuidance(routes)
                 }
+
+                override fun onFailure(
+                    reasons: List<RouterFailure>,
+                    routeOptions: RouteOptions
+                ) {
+                    sendEvent(MapBoxEvents.ROUTE_BUILD_FAILED)
+                }
+
+                override fun onCanceled(routeOptions: RouteOptions, routerOrigin: RouterOrigin) {
+                    sendEvent(MapBoxEvents.ROUTE_BUILD_CANCELLED)
+                }
+            }
         )
     }
 
@@ -311,6 +337,7 @@ class NavigationActivity : AppCompatActivity() {
     private val onMapLongClick = object : MapViewObserver(), OnMapLongClickListener {
 
         override fun onAttached(mapView: MapView) {
+            Timber.tag("Neil!").e("Adding long click listener")
             mapView.gestures.addOnMapLongClickListener(this)
         }
 
@@ -328,4 +355,72 @@ class NavigationActivity : AppCompatActivity() {
             return false
         }
     }
+
+    /**
+     * Notifies with attach and detach events on [MapView]
+     */
+    private val pointMarkerAdder = object : MapViewObserver() {
+
+        override fun onAttached(mapView: MapView) {
+            //mapView.gestures.addOnMapLongClickListener(this)
+            addAnnotationToMap(mapView);
+        }
+
+        private fun addAnnotationToMap(mapView: MapView) {
+            Timber.tag("Neil!").e("Adding annotations")
+            // Create an instance of the Annotation API and get the PointAnnotationManager.
+            bitmapFromDrawableRes(
+                this@NavigationActivity,
+                R.drawable.red_marker
+            )?.let {
+                val annotationApi = mapView?.annotations
+                val pointAnnotationManager = annotationApi?.createPointAnnotationManager(mapView!!)
+                // Set options for the resulting symbol layer.
+                val pointAnnotationOptions1: PointAnnotationOptions = PointAnnotationOptions()
+                    // Define a geographic coordinate.
+                    .withPoint(Point.fromLngLat(-1.470025, 37.422815))
+                    // Specify the bitmap you assigned to the point annotation
+                    // The bitmap will be added to map style automatically.
+                    .withIconImage(it)
+
+                val pointAnnotationOptions2: PointAnnotationOptions = PointAnnotationOptions()
+                    // Define a geographic coordinate.
+                    .withPoint(Point.fromLngLat(-122.084702, 37.422815))
+                    // Specify the bitmap you assigned to the point annotation
+                    // The bitmap will be added to map style automatically.
+                    .withIconImage(it)
+                // Add the resulting pointAnnotation to the map.
+                pointAnnotationManager?.create(pointAnnotationOptions1)
+                pointAnnotationManager?.create(pointAnnotationOptions2)
+            }
+        }
+
+        private fun bitmapFromDrawableRes(context: Context, @DrawableRes resourceId: Int) =
+            convertDrawableToBitmap(AppCompatResources.getDrawable(context, resourceId))
+
+        private fun convertDrawableToBitmap(sourceDrawable: Drawable?): Bitmap? {
+            if (sourceDrawable == null) {
+                return null
+            }
+            return if (sourceDrawable is BitmapDrawable) {
+                sourceDrawable.bitmap
+            } else {
+// copying drawable object to not manipulate on the same reference
+                val constantState = sourceDrawable.constantState ?: return null
+                val drawable = constantState.newDrawable().mutate()
+                val bitmap: Bitmap = Bitmap.createBitmap(
+                    drawable.intrinsicWidth, drawable.intrinsicHeight,
+                    Bitmap.Config.ARGB_8888
+                )
+                val canvas = Canvas(bitmap)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                bitmap
+            }
+        }
+    }
+
+//    override fun onDetached(mapView: MapView) {
+//        //mapView.gestures.removeOnMapLongClickListener(this)
+//    }
 }
