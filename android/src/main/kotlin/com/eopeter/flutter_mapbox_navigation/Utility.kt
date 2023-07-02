@@ -1,5 +1,9 @@
 package com.eopeter.flutter_mapbox_navigation
 
+import android.animation.ObjectAnimator
+import android.animation.TypeEvaluator
+import android.animation.ValueAnimator
+import android.animation.ValueAnimator.AnimatorUpdateListener
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Application
@@ -10,6 +14,8 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.location.Location
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.annotation.DrawableRes
 import androidx.appcompat.content.res.AppCompatResources
@@ -26,10 +32,12 @@ import com.mapbox.geojson.Feature
 import com.mapbox.geojson.FeatureCollection
 import com.mapbox.geojson.Point
 import com.mapbox.maps.*
-import com.mapbox.maps.extension.style.layers.generated.SymbolLayer
+import com.mapbox.maps.extension.style.layers.addLayer
+import com.mapbox.maps.extension.style.layers.generated.symbolLayer
 import com.mapbox.maps.extension.style.sources.addSource
 import com.mapbox.maps.extension.style.sources.generated.GeoJsonSource
-import com.mapbox.maps.extension.style.sources.getSource
+import com.mapbox.maps.extension.style.sources.generated.geoJsonSource
+import com.mapbox.maps.extension.style.sources.getSourceAs
 import com.mapbox.maps.plugin.annotation.annotations
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotationOptions
 import com.mapbox.maps.plugin.annotation.generated.createPointAnnotationManager
@@ -52,11 +60,15 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import timber.log.Timber
 import java.util.*
-//import com.mapbox.mapboxsdk.style.sources.GeoJsonSource;
 
 
-open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBinding, accessToken: String):  MethodChannel.MethodCallHandler, EventChannel.StreamHandler,
-        Application.ActivityLifecycleCallbacks {
+open class TurnByTurn(
+    ctx: Context,
+    act: Activity,
+    bind: NavigationActivityBinding,
+    accessToken: String
+) : MethodChannel.MethodCallHandler, EventChannel.StreamHandler,
+    Application.ActivityLifecycleCallbacks {
 
     open fun initFlutterChannelHandlers() {
         methodChannel?.setMethodCallHandler(this)
@@ -65,16 +77,15 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
 
     open fun initNavigation() {
         val navigationOptions = NavigationOptions.Builder(context)
-                .accessToken(token)
-                .build()
+            .accessToken(token)
+            .build()
 
         MapboxNavigationApp
-                .setup(navigationOptions)
-                .attach(activity as LifecycleOwner)
+            .setup(navigationOptions)
+            .attach(activity as LifecycleOwner)
 
         // initialize navigation trip observers
         registerObservers()
-
         registerMapObservers()
     }
 
@@ -83,27 +94,35 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
             "getPlatformVersion" -> {
                 result.success("Android ${android.os.Build.VERSION.RELEASE}")
             }
+
             "enableOfflineRouting" -> {
                 //downloadRegionForOfflineRouting(call, result)
             }
+
             "buildRoute" -> {
                 buildRoute(methodCall, result)
             }
+
             "clearRoute" -> {
                 clearRoute(methodCall, result)
             }
+
             "startNavigation" -> {
                 startNavigation(methodCall, result)
             }
+
             "finishNavigation" -> {
                 finishNavigation(methodCall, result)
             }
+
             "getDistanceRemaining" -> {
                 result.success(distanceRemaining)
             }
+
             "getDurationRemaining" -> {
                 result.success(durationRemaining)
             }
+
             else -> result.notImplemented()
         }
     }
@@ -112,13 +131,12 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
         isNavigationCanceled = false
 
         val arguments = methodCall.arguments as? Map<*, *>
-        if(arguments != null)
+        if (arguments != null)
             setOptions(arguments)
 
         addedWaypoints.clear()
         val points = arguments?.get("wayPoints") as HashMap<*, *>
-        for (item in points)
-        {
+        for (item in points) {
             val point = item.value as HashMap<*, *>
             val latitude = point["Latitude"] as Double
             val longitude = point["Longitude"] as Double
@@ -130,38 +148,41 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
 
     private fun getRoute(context: Context) {
         MapboxNavigationApp.current()!!.requestRoutes(
-                routeOptions = RouteOptions
-                        .builder()
-                        .applyDefaultNavigationOptions()
-                        .applyLanguageAndVoiceUnitOptions(context)
-                        .coordinatesList(addedWaypoints.coordinatesList())
-                        .waypointIndicesList(addedWaypoints.waypointsIndices())
-                        .waypointNamesList(addedWaypoints.waypointsNames())
-                        .alternatives(true)
-                        .build(),
-                callback = object : NavigationRouterCallback {
-                    override fun onRoutesReady(
-                            routes: List<NavigationRoute>,
-                            routerOrigin: RouterOrigin
-                    ) {
-                        currentRoutes = routes
-                        val directionsRoutes = routes.map { it.directionsRoute }
-                        PluginUtilities.sendEvent(MapBoxEvents.ROUTE_BUILT, Gson().toJson(directionsRoutes))
-                        binding.navigationView.api.routeReplayEnabled(simulateRoute)
-                        binding.navigationView.api.startRoutePreview(routes)
-                    }
-
-                    override fun onFailure(
-                            reasons: List<RouterFailure>,
-                            routeOptions: RouteOptions
-                    ) {
-                        PluginUtilities.sendEvent(MapBoxEvents.ROUTE_BUILD_FAILED)
-                    }
-
-                    override fun onCanceled(routeOptions: RouteOptions, routerOrigin: RouterOrigin) {
-                        PluginUtilities.sendEvent(MapBoxEvents.ROUTE_BUILD_CANCELLED)
-                    }
+            routeOptions = RouteOptions
+                .builder()
+                .applyDefaultNavigationOptions()
+                .applyLanguageAndVoiceUnitOptions(context)
+                .coordinatesList(addedWaypoints.coordinatesList())
+                .waypointIndicesList(addedWaypoints.waypointsIndices())
+                .waypointNamesList(addedWaypoints.waypointsNames())
+                .alternatives(true)
+                .build(),
+            callback = object : NavigationRouterCallback {
+                override fun onRoutesReady(
+                    routes: List<NavigationRoute>,
+                    routerOrigin: RouterOrigin
+                ) {
+                    currentRoutes = routes
+                    val directionsRoutes = routes.map { it.directionsRoute }
+                    PluginUtilities.sendEvent(
+                        MapBoxEvents.ROUTE_BUILT,
+                        Gson().toJson(directionsRoutes)
+                    )
+                    binding.navigationView.api.routeReplayEnabled(simulateRoute)
+                    binding.navigationView.api.startRoutePreview(routes)
                 }
+
+                override fun onFailure(
+                    reasons: List<RouterFailure>,
+                    routeOptions: RouteOptions
+                ) {
+                    PluginUtilities.sendEvent(MapBoxEvents.ROUTE_BUILD_FAILED)
+                }
+
+                override fun onCanceled(routeOptions: RouteOptions, routerOrigin: RouterOrigin) {
+                    PluginUtilities.sendEvent(MapBoxEvents.ROUTE_BUILD_CANCELLED)
+                }
+            }
         )
     }
 
@@ -172,7 +193,7 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
     private fun startNavigation(methodCall: MethodCall, result: MethodChannel.Result) {
 
         val arguments = methodCall.arguments as? Map<*, *>
-        if(arguments != null)
+        if (arguments != null)
             setOptions(arguments)
 
         startNavigation()
@@ -205,16 +226,14 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
         isNavigationCanceled = true
     }
 
-    private fun setOptions(arguments: Map<*, *>)
-    {
+    private fun setOptions(arguments: Map<*, *>) {
         val navMode = arguments["mode"] as? String
-        if(navMode != null)
-        {
-            if(navMode == "walking")
+        if (navMode != null) {
+            if (navMode == "walking")
                 navigationMode = DirectionsCriteria.PROFILE_WALKING;
-            else if(navMode == "cycling")
+            else if (navMode == "cycling")
                 navigationMode = DirectionsCriteria.PROFILE_CYCLING;
-            else if(navMode == "driving")
+            else if (navMode == "driving")
                 navigationMode = DirectionsCriteria.PROFILE_DRIVING;
         }
 
@@ -224,16 +243,15 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
         }
 
         val language = arguments["language"] as? String
-        if(language != null)
+        if (language != null)
             navigationLanguage = language
 
         val units = arguments["units"] as? String
 
-        if(units != null)
-        {
-            if(units == "imperial")
+        if (units != null) {
+            if (units == "imperial")
                 navigationVoiceUnits = DirectionsCriteria.IMPERIAL
-            else if(units == "metric")
+            else if (units == "metric")
                 navigationVoiceUnits = DirectionsCriteria.METRIC
         }
 
@@ -244,39 +262,39 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
         initialLongitude = arguments["initialLongitude"] as? Double
 
         val zm = arguments["zoom"] as? Double
-        if(zm != null)
+        if (zm != null)
             zoom = zm
 
         val br = arguments["bearing"] as? Double
-        if(br != null)
+        if (br != null)
             bearing = br
 
         val tt = arguments["tilt"] as? Double
-        if(tt != null)
+        if (tt != null)
             tilt = tt
 
         val optim = arguments["isOptimized"] as? Boolean
-        if(optim != null)
+        if (optim != null)
             isOptimized = optim
 
         val anim = arguments["animateBuildRoute"] as? Boolean
-        if(anim != null)
+        if (anim != null)
             animateBuildRoute = anim
 
         val altRoute = arguments["alternatives"] as? Boolean
-        if(altRoute != null)
+        if (altRoute != null)
             alternatives = altRoute
 
         val voiceEnabled = arguments["voiceInstructionsEnabled"] as? Boolean
-        if(voiceEnabled != null)
+        if (voiceEnabled != null)
             voiceInstructionsEnabled = voiceEnabled
 
         val bannerEnabled = arguments["bannerInstructionsEnabled"] as? Boolean
-        if(bannerEnabled != null)
+        if (bannerEnabled != null)
             bannerInstructionsEnabled = bannerEnabled
 
         val longPress = arguments["longPressDestinationEnabled"] as? Boolean
-        if(longPress != null)
+        if (longPress != null)
             longPressDestinationEnabled = longPress
     }
 
@@ -295,7 +313,7 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
     }
 
     open fun registerMapObservers() {
-        binding.navigationView.registerMapObserver(poiDecorator)
+        //binding.navigationView.registerMapObserver(poiDecorator)
         binding.navigationView.registerMapObserver(otherCarDecorator)
     }
 
@@ -330,7 +348,7 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
     var initialLongitude: Double? = null
 
     //val wayPoints: MutableList<Point> = mutableListOf()
-    var navigationMode =  DirectionsCriteria.PROFILE_DRIVING_TRAFFIC
+    var navigationMode = DirectionsCriteria.PROFILE_DRIVING_TRAFFIC
     var simulateRoute = false
     var mapStyleUrlDay: String? = null
     var mapStyleUrlNight: String? = null
@@ -352,7 +370,7 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
     var animateBuildRoute = true
     private var isOptimized = false
 
-    private var currentRoutes:  List<NavigationRoute>? = null
+    private var currentRoutes: List<NavigationRoute>? = null
     private var isNavigationCanceled = false
 
     /**
@@ -411,7 +429,7 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
     }
 
     /**
-     * Notifies with attach and detach events on [MapView]
+     * Notifies with attach and detach events on [MapView] - Uses Annotations
      */
     private val poiDecorator = object : MapViewObserver() {
 
@@ -474,104 +492,166 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
         }
     }
 
+    //Tries to use GeoJson Source
     private val otherCarDecorator = object : MapViewObserver() {
 
         override fun onAttached(mapView: MapView) {
-            addCarsToMap(mapView)
-            updateCarPositions(mapView)
+            val latitude = 54.016173
+            val longitude = -1.470070
+            val startingPoint: Point = Point.fromLngLat(longitude, latitude)
+
+            addCarsToMap(mapView, startingPoint)
+            simulateCarMovement(mapView, startingPoint)
+            //updateCarPositions(mapView)
+        }
+
+        private fun simulateCarMovement(mapView: MapView, previousPoint: Point) {
+
+            var latitude = previousPoint.latitude()
+            var longitude = previousPoint.longitude()
+
+            // A handler is needed to called the API every x amount of seconds.
+            val handler = Handler(Looper.getMainLooper())
+                handler.post(object : Runnable {
+                    override fun run() {
+                        latitude += 0.000100
+                        longitude -= 0.000100
+                        animateMarkerPosition(mapView, Point.fromLngLat(longitude, latitude))
+
+//                        updateCarPositions(
+//                            mapView, Point.fromLngLat(
+//                                longitude,
+//                                latitude
+//                            )
+//                        )
+                        //simulate a new position every second
+                        handler.postDelayed(this, 1000)
+                    }
+                })
+
+
+
+        }
+
+        private fun addCarsToMap(mapView: MapView, startingPoint: Point) {
+            // Get the style
+            mapView.getMapboxMap().getStyle { style ->
+                //add the bitmap to the style
+                bitmapFromDrawableRes(
+                    context,
+                    R.drawable.car_marker
+                )?.let {
+                    style.addImage(
+                        "car-marker-id",
+                        it
+                    )
+                }
+
+                // Specify a unique string as the source ID (SOURCE_ID)
+                // and create the source data
+                style.addSource(
+                    geoJsonSource("car-marker-source-id")
+                        .featureCollection(
+                            FeatureCollection.fromFeature(
+                                Feature.fromGeometry(
+                                    Point.fromLngLat(
+                                        startingPoint.longitude(),
+                                        startingPoint.latitude()
+                                    )
+                                )
+                            )
+                        )
+                )
+                style.addLayer(symbolLayer("car-marker-layer-id", "car-marker-source-id") {
+                    iconImage("car-marker-id")
+                    iconIgnorePlacement(true)
+                    iconAllowOverlap(true)
+                    iconSize(.2)
+                })
+            }
+
+
         }
 
         //TODO: Probably pass a collection of position updates in here - each identified by the car number
-        private fun updateCarPositions(mapView: MapView) {
-            // This method is where we update the marker position once we have new coordinates. First we
-            // check if this is the first time we are executing this handler, the best way to do this is
-            // check if marker is null;
-            // This method is where we update the marker position once we have new coordinates. First we
-            // check if this is the first time we are executing this handler, the best way to do this is
-            // check if marker is null;
-
-            val mapboxMap = mapView.getMapboxMap()
-            val style = mapboxMap.getStyle()
-
-            if (mapboxMap.getStyle() != null) {
-                val carMarkerSource: GeoJsonSource = mapboxMap.getStyle()!!.getSource("car-marker-source-id") as GeoJsonSource
-                if (carMarkerSource != null) {
-                    carMarkerSource.setGeoJson(
+        private fun updateCarPositions(mapView: MapView, point: Point) {
+            mapView.getMapboxMap().getStyle { style ->
+                val carPositionSource: GeoJsonSource? = style.getSourceAs("car-marker-source-id")
+                if (carPositionSource != null) {
+                    //here we are just directly updating the underlying data source which automatically updates the UI
+                    carPositionSource.featureCollection(
                         FeatureCollection.fromFeature(
                             Feature.fromGeometry(
-                                Point.fromLngLat(
-                                    position.getLongitude(),
-                                    position.getLatitude()
-                                )
+                                point
                             )
                         )
                     )
                 }
             }
-
-            // Lastly, animate the camera to the new position so the user
-            // wont have to search for the marker and then return.
-
-            // Lastly, animate the camera to the new position so the user
-            // wont have to search for the marker and then return.
-            //map.animateCamera(CameraUpdateFactory.newLatLng(position))
         }
 
-        private fun addCarsToMap(mapView: MapView) {
-            Timber.tag("Neil!").e("Adding cars")
+        var markerAnimator = ValueAnimator()
+        var currentPosition = Point.fromLngLat(-1.470070, 54.016173)
 
-            val mapboxMap = mapView.getMapboxMap()
-            val style = mapboxMap.getStyle()
 
-            if (style != null) {
-                bitmapFromDrawableRes(
-                    context,
-                    R.drawable.car_marker)?.let {
-                    style.addImage("car-marker-id",
-                        it
-                    )
+        private fun animateMarkerPosition(mapView: MapView, destinationPoint: Point) {
+            // When the marker vehicle changes, we want to animate the marker to that
+            // location - we do that by working out the fractional movements to animate the
+            // marker and repeatedly update the geoJson source, letting the UI update
+            // automatically for us.
+            if (markerAnimator.isStarted) {
+                currentPosition = markerAnimator.animatedValue as Point
+                markerAnimator.cancel()
+            }
+
+            markerAnimator = ObjectAnimator
+                 .ofObject(latLngEvaluator, currentPosition, destinationPoint)
+                .setDuration(500)
+            addAnimatorListener(markerAnimator, mapView)
+            markerAnimator.start()
+
+            currentPosition = destinationPoint
+        }
+
+        private fun addAnimatorListener(markerAnimator: ValueAnimator, mapView: MapView) {
+            val animatorUpdateListener =
+                AnimatorUpdateListener { valueAnimator ->
+                    val animatedPosition: Point = valueAnimator.animatedValue as Point
+                    updateCarPositions(mapView, Point.fromLngLat(
+                        animatedPosition.longitude(),
+                        animatedPosition.latitude()
+                    ))
                 }
-
-                //create the GeoJsonData Source
-                val geoJsonSource = GeoJsonSource.Builder("car-marker-source-id").build()
-                style.addSource(geoJsonSource)
-
-                //add the GeoJsonData Source to the layer
-                val symbolLayer = SymbolLayer("layer-id", "source-id")
-                symbolLayer.iconImage("space-station-icon-id")
-                symbolLayer.iconIgnorePlacement(true)
-                symbolLayer.iconAllowOverlap(true)
-                symbolLayer.iconSize(.7)
-            }
+            markerAnimator.addUpdateListener(animatorUpdateListener)
+        }
 
 
-            // Create an instance of the Annotation API and get the PointAnnotationManager.
-            bitmapFromDrawableRes(
-                context,
-                R.drawable.car_marker
-            )?.let {
-                val annotationApi = mapView?.annotations
-                //val pointAnnotationManager = annotationApi?.createPointAnnotationManager(mapView!!)
-                val pointAnnotationManager = annotationApi?.createPointAnnotationManager()
-                // Set options for the resulting symbol layer.
-                val pointAnnotationOptions1: PointAnnotationOptions = PointAnnotationOptions()
-                    // Define a geographic coordinate.
-                    .withPoint(Point.fromLngLat(-1.470070, 54.016173))
-                    // Specify the bitmap you assigned to the point annotation
-                    // The bitmap will be added to map style automatically.
-                    .withIconImage(it)
-
-                val pointAnnotationOptions2: PointAnnotationOptions = PointAnnotationOptions()
-                    // Define a geographic coordinate.
-                    .withPoint(Point.fromLngLat(-1.470826, 54.015643))
-                    // Specify the bitmap you assigned to the point annotation
-                    // The bitmap will be added to map style automatically.
-                    .withIconImage(it)
-                // Add the resulting pointAnnotation to the map.
-                pointAnnotationManager?.create(pointAnnotationOptions1)
-                pointAnnotationManager?.create(pointAnnotationOptions2)
+        // Class is used to interpolate the marker animation.
+        private val latLngEvaluator: TypeEvaluator<Point> = object : TypeEvaluator<Point> {
+            override fun evaluate(fraction: Float, startValue: Point, endValue: Point): Point {
+                val latitudeValue = startValue.latitude() + (endValue.latitude() - startValue.latitude()) * fraction
+                val longitudeValue = startValue.longitude() + (endValue.longitude() - startValue.longitude()) * fraction
+                return Point.fromLngLat(longitudeValue, latitudeValue)
             }
         }
+
+
+
+
+//        private fun animateMarkerOld(iconLayer: SymbolLayer) {
+//            //See: https://docs.mapbox.com/android/legacy/maps/examples/animate-marker-position/
+//            //We animate the marker to the new position and THEN update the car position in the GeoJson
+//            val markerAnimator = ValueAnimator()
+//            markerAnimator.setObjectValues(1f, 2f)
+//            markerAnimator.setDuration(300)
+//            markerAnimator.addUpdateListener(AnimatorUpdateListener { animator ->
+//                iconLayer.setProperties(
+//                    PropertyFactory.iconSize(animator.animatedValue as Float)
+//                )
+//            })
+//            markerAnimator.start()
+//            markerSelected = true
+//        }
 
         private fun bitmapFromDrawableRes(context: Context, @DrawableRes resourceId: Int) =
             convertDrawableToBitmap(AppCompatResources.getDrawable(context, resourceId))
@@ -597,9 +677,6 @@ open class TurnByTurn(ctx: Context, act: Activity, bind: NavigationActivityBindi
             }
         }
     }
-
-
-
 
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
